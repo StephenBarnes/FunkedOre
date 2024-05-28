@@ -1,0 +1,9 @@
+{
+	"name": "FunkedOre",
+	"version": "1.0.0",
+	"title": "Funked Ore",
+	"author": "StephenB",
+	"factorio_version": "1.1",
+	"dependencies": ["base >= 1.1" ],
+	"description": "Fully customizable mixing and substitution of ore patches when they first generate. Change all deposits of uranium to a 3-to-1 mix of iron and coal. Or change some stone patches to a mixture of coal and stone, while leaving other stone patches unchanged."
+}

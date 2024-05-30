@@ -64,7 +64,7 @@ function parseMix(s)
 		optionOre = getRealOreName(optionOre)
 		if optionOre == nil then return nil end
 		local optionCountInt = 1
-		if optionCountStr ~= "" then optionCountInt = tonumber(optionCountStr) end
+		if optionCountStr ~= "" then optionCountInt = tonumber(optionCountStr) or 0 end
 		mix[optionOre] = optionCountInt
 		totalWeight = totalWeight + optionCountInt
 	end

@@ -252,7 +252,9 @@ function findCreateControlPoint(resourceEntity, mixOptions, distToOrigin)
 end
 
 function mixOptionAppliesAtDist(mixOption, dist)
-	if mixOption.minDist ~= nil and dist < mixOption.minDist then
+	-- Whenever user types "<", we interpret that instead as "<="; but ">" stays ">".
+	-- This is to prevent off-by-one errors when the user makes multiple rules like ">50" and "<50".
+	if mixOption.minDist ~= nil and dist <= mixOption.minDist then
 		return false
 	end
 	if mixOption.maxDist ~= nil and dist > mixOption.maxDist then
@@ -261,7 +263,7 @@ function mixOptionAppliesAtDist(mixOption, dist)
 	if mixOption.modBy ~= nil then
 		local moddedDist = dist % mixOption.modBy
 		if mixOption.modLessThan ~= nil then
-			if moddedDist >= mixOption.modLessThan then
+			if moddedDist > mixOption.modLessThan then
 				return false
 			end
 		end

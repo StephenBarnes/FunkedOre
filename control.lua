@@ -112,7 +112,10 @@ function parseExtraArgs(extraArgStrs)
 	if #extraArgStrs == 0 then return {} end
 	for _, extraArgStr in pairs(extraArgStrs) do
 		local parsedArg = parseExtraArg(extraArgStr)
-		if parsedArg == nil then return nil end
+		if parsedArg == nil then
+			printError("Could not parse extra arg: "..extraArgStr)
+			return nil
+		end
 		for key, value in pairs(parsedArg) do
 			parsedExtraArgs[key] = value
 		end

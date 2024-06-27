@@ -2,7 +2,7 @@
 Version: 1.1.0
 Date: 27. 06. 2024
   Features:
-    - TODO Add distance parameter for transform rules.
+    - Add extra parameters to make transforms apply only at certain distances from spawn.
 ---------------------------------------------------------------------------------------------------
 Version: 1.0.0
 Date: 28. 05. 2024

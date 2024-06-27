@@ -90,7 +90,6 @@ end
 function parseExtraArg(s)
 	-- Maps something like ">50" to {minDist=50}.
 	-- Returns nil on error.
-	game.print("Funked Ore parsing extra arg "..s)
 	if s:sub(1, 1) == ">" then
 		return {minDist=tonumber(s:sub(2))}
 	elseif s:sub(1, 1) == "<" then
@@ -113,7 +112,6 @@ function parseExtraArgs(extraArgStrs)
 	if #extraArgStrs == 0 then return {} end
 	for _, extraArgStr in pairs(extraArgStrs) do
 		local parsedArg = parseExtraArg(extraArgStr)
-		game.print("Funked Ore parsed extra arg to "..game.table_to_json(parsedArg))
 		if parsedArg == nil then return nil end
 		for key, value in pairs(parsedArg) do
 			parsedExtraArgs[key] = value

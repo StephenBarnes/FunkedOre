@@ -68,47 +68,87 @@ function parseMix(s)
 		mix[optionOre] = optionCountInt
 		totalWeight = totalWeight + optionCountInt
 	end
-	mix["total weight"] = totalWeight
+	mix.totalWeight = totalWeight
 	return mix
 end
 
-function parseMixOptions(s)
+function parseMixOptions(s, extraArgs)
 	-- Maps an ore mix options string like "coal+3stone/iron/iron+copper" to a list of those 3 alternatives.
 	-- Returns nil on error.
 	local mixOptions = {}
 	for mix in string.gmatch(s, '([^/]+)') do
 		local parsedMix = parseMix(mix)
 		if parsedMix == nil then return nil end
+		parsedMix.minDist = extraArgs.minDist
+		parsedMix.maxDist = extraArgs.maxDist
 		table.insert(mixOptions, parsedMix)
 	end
 	return mixOptions
 end
 
-function addOreToMixesRule(oreToBeTransformed, mixOptions)
-	-- Adds a rule like "coal=>stone+iron" when given args "coal" and "stone+iron".
+function parseExtraArg(s)
+	-- Maps something like ">50" to {minDist=50}.
+	-- Returns nil on error.
+	if s:sub(1, 1) == ">" then
+		return {key="minDist", value=tonumber(s:sub(2))}
+	elseif s:sub(1, 1) == "<" then
+		return {key="maxDist", value=tonumber(s:sub(2))}
+	end
+end
+
+function parseExtraArgs(extraArgStrs)
+	-- Maps something like {">50", "<100"} to {minDist=50, maxDist=100}.
+	-- Returns nil on error.
+	local extraArgs = {}
+	if extraArgStrs == nil then return nil end
+	if #extraArgStrs == 0 then return {} end
+	for _, extraArgStr in pairs(extraArgStrs) do
+		local extraArg = parseExtraArg(extraArgStr)
+		if extraArg == nil then return nil end
+		extraArgs[extraArg.key] = extraArg.value
+	end
+	return extraArgs
+end
+
+function addOreToMixesRule(oreToBeTransformed, extraArgStrs, mixOptionsStr)
+	-- Adds a rule like "coal(>50)=>stone+iron" when given args "coal", {">50"}, and "stone+iron".
 	-- Returns true if there was an error, else returns false.
 	oreToBeTransformed = getRealOreName(oreToBeTransformed)
 	if oreToBeTransformed == nil then return true end
-	if global.parsedTransforms[oreToBeTransformed] ~= nil then
-		printError("Ore appears at the start of multiple transform rules: "..oreToBeTransformed)
-		return true
-	end
-	local mixOptions = parseMixOptions(mixOptions)
+	local extraArgs = parseExtraArgs(extraArgStrs)
+	if extraArgs == nil then return true end
+	local mixOptions = parseMixOptions(mixOptionsStr, extraArgs)
 	if mixOptions == nil then return true end
-	global.parsedTransforms[oreToBeTransformed] = mixOptions
+	if global.parsedTransforms[oreToBeTransformed] == nil then
+		global.parsedTransforms[oreToBeTransformed] = {}
+	end
+	for _, mixOption in pairs(mixOptions) do
+		table.insert(global.parsedTransforms[oreToBeTransformed], mixOption)
+	end
 	return false
 end
 
 function reparseTransforms(s)
 	global.parsedTransforms = {}
-	for oreToBeTransformed, mixOptions in string.gmatch(s, '([^&]+)=>([^&]*)') do
-		local hasError = addOreToMixesRule(oreToBeTransformed, mixOptions)
+	for oreAndExtraArgs, mixOptionsStr in string.gmatch(s, '([^&]+)=>([^&]*)') do
+		-- parse OreAndExtraArgs like "coal(>50)" into oreToBeTransformed = "coal" and extraArgStr = "(>50)".
+		local oreToBeTransformed, extraArgStr = oreAndExtraArgs:match('^([^(]+)(.*)$')
+		-- Split a string like extraArgStr "(>50)(<100)" into a table like {">50", "<100"}.
+		local extraArgStrs = {}
+		if extraArgStr ~= nil then
+			for extraArg in string.gmatch(extraArgStr, '%(([^%(]+)%)') do
+				table.insert(extraArgStrs, extraArg)
+			end
+		end
+		local hasError = addOreToMixesRule(oreToBeTransformed, extraArgStrs, mixOptionsStr)
 		if hasError then
 			global.parsedTransforms = {}
 			break
 		end
+
 	end
 	log("Funked Ore re-parsed transforms: " .. game.table_to_json(global.parsedTransforms))
+	game.print("Funked Ore re-parsed transforms: " .. game.table_to_json(global.parsedTransforms))
 end
 
 function refreshTransforms()
@@ -146,7 +186,7 @@ function createControlPoint(resourceEntity, chosenMix)
 	table.insert(global.controlPoints[resourceEntity.name], newControlPoint)
 end
 
-function findCreateControlPoint(resourceEntity, mixOptions)
+function findCreateControlPoint(resourceEntity, mixOptions, distToOrigin)
 	-- Finds closest control point. If none are close enough, creates a new one.
 	-- If one is close enough, but still some distance away, creates a new control point with the same mix, in order to influence the rest of that ore patch.
 	-- Returns the mix of the closest control point, or of the newly created control point.
@@ -158,27 +198,30 @@ function findCreateControlPoint(resourceEntity, mixOptions)
 	end
 
 	local oreControlPoints = global.controlPoints[resourceEntity.name]
-	if #oreControlPoints == 0 then
-		local chosenMix = mixOptions[math.random(1, #mixOptions)]
-		createControlPoint(resourceEntity, chosenMix)
-		return chosenMix
-	end
 
 	local closestControlPoint = nil
 	local distToClosestControlPoint = nil
 	for i = 0, #oreControlPoints - 1 do
 		-- We iterate through them starting from the end, since that was created most recently, so most likely to be nearby, triggering early stopping which saves time.
 		local thisControlPoint = oreControlPoints[#oreControlPoints - i]
-		local dist = distance(thisControlPoint, resourceEntity.position)
-		if dist <= settings.global["FunkedOre-control-point-early-stop-dist"].value then
-			closestControlPoint = thisControlPoint
-			distToClosestControlPoint = dist
-			break
+		if mixOptionAppliesAtDist(thisControlPoint.mix, distToOrigin) then
+			local distEntToControlPoint = distance(thisControlPoint, resourceEntity.position)
+			if distEntToControlPoint <= settings.global["FunkedOre-control-point-early-stop-dist"].value then
+				closestControlPoint = thisControlPoint
+				distToClosestControlPoint = distEntToControlPoint
+				break
+			end
+			if (closestControlPoint == nil) or (distToClosestControlPoint > distEntToControlPoint) then
+				closestControlPoint = thisControlPoint
+				distToClosestControlPoint = distEntToControlPoint
+			end
 		end
-		if (closestControlPoint == nil) or (distToClosestControlPoint > dist) then
-			closestControlPoint = thisControlPoint
-			distToClosestControlPoint = dist
-		end
+	end
+
+	if closestControlPoint == nil then
+		local chosenMix = mixOptions[math.random(1, #mixOptions)]
+		createControlPoint(resourceEntity, chosenMix)
+		return chosenMix
 	end
 
 	-- If closest control point is out of reach, make a new one.
@@ -196,21 +239,46 @@ function findCreateControlPoint(resourceEntity, mixOptions)
 	return closestControlPoint.mix
 end
 
+function mixOptionAppliesAtDist(mixOption, dist)
+	if mixOption.minDist ~= nil and dist < mixOption.minDist then
+		return false
+	end
+	if mixOption.maxDist ~= nil and dist > mixOption.maxDist then
+		return false
+	end
+	return true
+end
+
+function getMixOptions(resourceEntity, distToOrigin)
+	local mixOptionsForOre = global.parsedTransforms[resourceEntity.name]
+	if mixOptionsForOre == nil then return {} end -- No transforms specified for this ore.
+	local result = {}
+	-- TODO write a filter() higher-order function for this.
+	for _, mixOption in pairs(mixOptionsForOre) do
+		if mixOptionAppliesAtDist(mixOption, distToOrigin) then
+			table.insert(result, mixOption)
+		end
+	end
+	return result
+end
+
 function findOrDecideLocalMix(resourceEntity)
-	local mixOptions = global.parsedTransforms[resourceEntity.name]
-	if mixOptions == nil then return nil end -- No transforms specified for this ore.
+	local distToOrigin = distance(resourceEntity.position, {x=0, y=0})
+	local mixOptions = getMixOptions(resourceEntity, distToOrigin)
+	if #mixOptions == 0 then return nil end
 	if #mixOptions == 1 then return mixOptions[1] end
-	local chosenMix = findCreateControlPoint(resourceEntity, mixOptions)
+	local chosenMix = findCreateControlPoint(resourceEntity, mixOptions, distToOrigin)
 	return chosenMix
 end
 
+local reservedKeywords = {minDist=true, maxDist=true, totalWeight=true}
 function pickNewOre(mix)
-	-- Given a mix like {"coal":1, "stone":1, "total weight":2}, will return either "coal" or "stone" with equal probability.
+	-- Given a mix like {coal=1, stone=1, totalWeight=2, minDist=100}, will return either "coal" or "stone" with equal probability.
 	if table_size(mix) == 0 then return "nothing" end
-	if mix["total weight"] == 0 then return "nothing" end
-	local r = math.random(1, mix["total weight"])
+	if mix.totalWeight == 0 then return "nothing" end
+	local r = math.random(1, mix.totalWeight)
 	for ore, weight in pairs(mix) do
-		if ore ~= "total weight" then
+		if reservedKeywords[ore] == nil then
 			r = r - weight
 			if r <= 0 then
 				return ore
@@ -221,12 +289,6 @@ function pickNewOre(mix)
 end
 
 function considerChangingOreEntity(resourceEntity, surface)
-	local minDistFromSpawn = settings.global["FunkedOre-min-distance-from-spawn"].value
-	if minDistFromSpawn ~= 0 then
-		local dist = distance(resourceEntity.position, {x=0, y=0})
-		if dist < minDistFromSpawn then return end
-	end
-
 	local mix = findOrDecideLocalMix(resourceEntity)
 	if mix == nil then return end
 	local newOre = pickNewOre(mix)

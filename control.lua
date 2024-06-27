@@ -79,8 +79,9 @@ function parseMixOptions(s, extraArgs)
 	for mix in string.gmatch(s, '([^/]+)') do
 		local parsedMix = parseMix(mix)
 		if parsedMix == nil then return nil end
-		parsedMix.minDist = extraArgs.minDist
-		parsedMix.maxDist = extraArgs.maxDist
+		for key, value in pairs(extraArgs) do
+			parsedMix[key] = value
+		end
 		table.insert(mixOptions, parsedMix)
 	end
 	return mixOptions
@@ -89,25 +90,36 @@ end
 function parseExtraArg(s)
 	-- Maps something like ">50" to {minDist=50}.
 	-- Returns nil on error.
+	game.print("Funked Ore parsing extra arg "..s)
 	if s:sub(1, 1) == ">" then
-		return {key="minDist", value=tonumber(s:sub(2))}
+		return {minDist=tonumber(s:sub(2))}
 	elseif s:sub(1, 1) == "<" then
-		return {key="maxDist", value=tonumber(s:sub(2))}
+		return {maxDist=tonumber(s:sub(2))}
+	elseif s:sub(1, 1) == "%" then
+		local modBy, op, modThreshold = s:match('^%%(%d+)([<>])(%d+)$')
+		if op == "<" then
+			return {modBy=tonumber(modBy), modLessThan=tonumber(modThreshold)}
+		else
+			return {modBy=tonumber(modBy), modGreaterThan=tonumber(modThreshold)}
+		end
 	end
 end
 
 function parseExtraArgs(extraArgStrs)
 	-- Maps something like {">50", "<100"} to {minDist=50, maxDist=100}.
 	-- Returns nil on error.
-	local extraArgs = {}
+	local parsedExtraArgs = {}
 	if extraArgStrs == nil then return nil end
 	if #extraArgStrs == 0 then return {} end
 	for _, extraArgStr in pairs(extraArgStrs) do
-		local extraArg = parseExtraArg(extraArgStr)
-		if extraArg == nil then return nil end
-		extraArgs[extraArg.key] = extraArg.value
+		local parsedArg = parseExtraArg(extraArgStr)
+		game.print("Funked Ore parsed extra arg to "..game.table_to_json(parsedArg))
+		if parsedArg == nil then return nil end
+		for key, value in pairs(parsedArg) do
+			parsedExtraArgs[key] = value
+		end
 	end
-	return extraArgs
+	return parsedExtraArgs
 end
 
 function addOreToMixesRule(oreToBeTransformed, extraArgStrs, mixOptionsStr)
@@ -133,7 +145,7 @@ function reparseTransforms(s)
 	for oreAndExtraArgs, mixOptionsStr in string.gmatch(s, '([^&]+)=>([^&]*)') do
 		-- parse OreAndExtraArgs like "coal(>50)" into oreToBeTransformed = "coal" and extraArgStr = "(>50)".
 		local oreToBeTransformed, extraArgStr = oreAndExtraArgs:match('^([^(]+)(.*)$')
-		-- Split a string like extraArgStr "(>50)(<100)" into a table like {">50", "<100"}.
+		-- Split a string like extraArgStr "(>50)(<100)" into a list like {">50", "<100"}.
 		local extraArgStrs = {}
 		if extraArgStr ~= nil then
 			for extraArg in string.gmatch(extraArgStr, '%(([^%(]+)%)') do
@@ -148,7 +160,7 @@ function reparseTransforms(s)
 
 	end
 	log("Funked Ore re-parsed transforms: " .. game.table_to_json(global.parsedTransforms))
-	game.print("Funked Ore re-parsed transforms: " .. game.table_to_json(global.parsedTransforms))
+	--game.print("Funked Ore re-parsed transforms: " .. game.table_to_json(global.parsedTransforms))
 end
 
 function refreshTransforms()
@@ -246,6 +258,19 @@ function mixOptionAppliesAtDist(mixOption, dist)
 	if mixOption.maxDist ~= nil and dist > mixOption.maxDist then
 		return false
 	end
+	if mixOption.modBy ~= nil then
+		local moddedDist = dist % mixOption.modBy
+		if mixOption.modLessThan ~= nil then
+			if moddedDist >= mixOption.modLessThan then
+				return false
+			end
+		end
+		if mixOption.modGreaterThan ~= nil then
+			if moddedDist <= mixOption.modGreaterThan then
+				return false
+			end
+		end
+	end
 	return true
 end
 
@@ -271,7 +296,7 @@ function findOrDecideLocalMix(resourceEntity)
 	return chosenMix
 end
 
-local reservedKeywords = {minDist=true, maxDist=true, totalWeight=true}
+local reservedKeywords = {minDist=true, maxDist=true, totalWeight=true, modBy=true, modLessThan=true, modGreaterThan=true}
 function pickNewOre(mix)
 	-- Given a mix like {coal=1, stone=1, totalWeight=2, minDist=100}, will return either "coal" or "stone" with equal probability.
 	if table_size(mix) == 0 then return "nothing" end
